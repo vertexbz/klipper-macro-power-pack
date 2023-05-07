@@ -196,6 +196,8 @@ class MacroPowerPack:
 
         gm = self.printer.load_object(config, 'gcode_macro')
         gm.load_template = types.MethodType(power_load_template, gm)
+        gm.env.add_extension('jinja2.ext.do')
+        gm.env.add_extension('jinja2.ext.loopcontrols')
         gm.env.loader = MacroTemplateLoader(self.printer)
         gm.env.filters['bool'] = filter_bool
         gm.env.filters['yesno'] = filter_yesno

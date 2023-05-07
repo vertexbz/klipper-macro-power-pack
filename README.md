@@ -62,8 +62,22 @@ gcode:
 
 ```
 
-### Temaplate filters
+### Template filters
 - `bool` - converts "yes", "true", "on" (case insensitive) and positive numeric values to boolean _True_ and the rest to _False_
 - `yesno` - converts boolean _True_ to string `yes` and _False_ to `no`
 - `onoff` - converts boolean _True_ to string `on` and _False_ to `off`
 - `fromjson` - parses json string into dict
+
+### `do` statement
+Enables `jinja2.ext.do` jinja extension that provides `do` statement as a wrapper for any calls from template and ignores return value
+
+```
+[gcode_macro TEST_DO]
+gcode:
+  {% set dict = '{"a":"foo"}'|fromjson %}
+  {% do dict.update({'a':'bar'}) %}
+  M117 {dict['a']}
+```
+
+### `break` and `continue` statements
+Enables `jinja2.ext.loopcontrols`  jinja extension that adds support for break and continue in loops
