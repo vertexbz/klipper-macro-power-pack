@@ -4,7 +4,7 @@ Reload all your macros without restarting Klipper!
 
 And get more from jinja templates?
 
-# Installation
+## Installation
 
 ```
 cd ~
@@ -15,7 +15,7 @@ ln -s ~/klipper-macro-power-pack/macro_template.py .
 ```
 
 
-## Moonraker
+### Moonraker
 To add the extension to the update manager you can use following config
 
 ```
@@ -28,12 +28,17 @@ is_system_service: False
 ```
 
 
-## Klipper Configuration
+### Klipper Configuration
 
-Add this (preferably) on top of your config
+Finally to enable the extension, add floowing block (preferably) on the top of your config
 ```
 [macro_power_pack]
 ```
+
+## Features
+
+### Macro reload
+G-Code command `MACRO_RELOAD` reads configuration files again and reloads macros
 
 ### Templates
 To define macros for use in [`include`s](https://jinja.palletsprojects.com/en/2.10.x/templates/#include) or [`import`s](https://jinja.palletsprojects.com/en/2.10.x/templates/#import) define `macro_template` section
@@ -44,6 +49,7 @@ template:
     {% macro hello(name) -%}
       Hello { name }!
     {%- endmacro %}
+
 ```
 
 usage:
@@ -56,10 +62,8 @@ gcode:
 
 ```
 
-
-## Usage
-
-```
-MACRO_RELOAD      - reloads macros
-
-```
+### Temaplate filters
+- `bool` - converts "yes", "true", "on" (case insensitive) and positive numeric values to boolean _True_ and the rest to _False_
+- `yesno` - converts boolean _True_ to string `yes` and _False_ to `no`
+- `onoff` - converts boolean _True_ to string `on` and _False_ to `off`
+- `fromjson` - parses json string into dict

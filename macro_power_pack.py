@@ -166,6 +166,29 @@ class MacroTemplateUpdater(SectionUpdater):
 
         gcmd.respond_info("Removed {}".format(key))
 
+def filter_bool(value):
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value == 'true' or value == 'on' or value == 'yes':
+            return True
+
+    try:
+        return int(value) > 0
+    except ValueError:
+        return False
+
+def filter_yesno(value):
+    return "yes" if filter_bool(value) else "no"
+
+def filter_onoff(value):
+    return "on" if filter_bool(value) else "off"
+
+def filter_fromjson(value):
+    return json.loads(value)
+
 class MacroPowerPack:
     def __init__(self, config):
         self.printer = config.get_printer()
@@ -174,15 +197,19 @@ class MacroPowerPack:
         gm = self.printer.load_object(config, 'gcode_macro')
         gm.load_template = types.MethodType(power_load_template, gm)
         gm.env.loader = MacroTemplateLoader(self.printer)
+        gm.env.filters['bool'] = filter_bool
+        gm.env.filters['yesno'] = filter_yesno
+        gm.env.filters['onoff'] = filter_onoff
+        gm.env.filters['fromjson'] = filter_fromjson
+
+        self.updater_gcode_macro = GCodeMacroUpdater(self.printer)
+        self.updater_macro_template = MacroTemplateUpdater(self.printer)
 
         self.gcode.register_command(
             'MACRO_RELOAD', 
             self.cmd_MACRO_RELOAD,
             desc="Reloads macros from config files"
         )
-
-        self.updater_gcode_macro = GCodeMacroUpdater(self.printer)
-        self.updater_macro_template = MacroTemplateUpdater(self.printer)
 
     def cmd_MACRO_RELOAD(self, gcmd):
         self.updater_gcode_macro.update(gcmd)
