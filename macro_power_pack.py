@@ -113,14 +113,25 @@ class GCodeMacroUpdater(SectionUpdater):
 
 
     def _add(self, gcmd, key, config, section_config):
-        self.printer.load_object(config, key)
-        gcmd.respond_info("Added {}".format(key))
+        try:
+            self.gcode_macro.env.parse(section_config.get('gcode'))
+            
+            self.printer.load_object(config, key)
+            gcmd.respond_info("Added {}".format(key))
+        except jinja2.exceptions.TemplateSyntaxError as e:
+            gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
 
     def _update(self, gcmd, key, config, current, section_config):
-        current.template = self.gcode_macro.load_template(section_config, 'gcode')
-        current.cmd_desc = section_config.get("description", "G-Code macro")
-        current.variables = get_variabales(gcmd, section_config)
-        gcmd.respond_info("Updated {}".format(key))
+        try:
+            self.gcode_macro.env.parse(section_config.get('gcode'))
+            
+            current.template = self.gcode_macro.load_template(section_config, 'gcode')
+            current.cmd_desc = section_config.get("description", "G-Code macro")
+            current.variables = get_variabales(gcmd, section_config)
+            gcmd.respond_info("Updated {}".format(key))
+        except jinja2.exceptions.TemplateSyntaxError as e:
+            gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
+
 
     def _remove(self, gcmd, key, current):
         name = key.split()[1]
@@ -153,12 +164,22 @@ class MacroTemplateUpdater(SectionUpdater):
         return current.template == config.get('template')
 
     def _add(self, gcmd, key, config, section_config):
-        self.printer.load_object(config, key)
-        gcmd.respond_info("Added {}".format(key))
+        try:
+            self.gcode_macro.env.parse(section_config.get('template'))
+            
+            self.printer.load_object(config, key)
+            gcmd.respond_info("Added {}".format(key))
+        except jinja2.exceptions.TemplateSyntaxError as e:
+            gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
 
     def _update(self, gcmd, key, config, current, section_config):
-        current.template = section_config.get('template')
-        gcmd.respond_info("Updated {}".format(key))
+        try:
+            self.gcode_macro.env.parse(section_config.get('template'))
+            
+            current.template = section_config.get('template')
+            gcmd.respond_info("Updated {}".format(key))
+        except jinja2.exceptions.TemplateSyntaxError as e:
+            gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
 
     def _remove(self, gcmd, key, current):
         if key in self.printer.objects:
