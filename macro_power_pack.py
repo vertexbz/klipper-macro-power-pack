@@ -3,10 +3,11 @@
 # Copyright (C) 2023 Adam Makswiej <vertexbz@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import types, configfile, ast, json, jinja2
+import types, configfile, ast, json, jinja2, hashlib
 from . import gcode_macro
 
-
+def hash(value):
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
 
 class MacroTemplateLoader(jinja2.BaseLoader):
     def __init__(self, printer):
@@ -23,15 +24,8 @@ class MacroTemplateLoader(jinja2.BaseLoader):
 class TemplateWrapper(gcode_macro.TemplateWrapper):
     def __init__(self, printer, env, name, script):
         gcode_macro.TemplateWrapper.__init__(self, printer, env, name, script)
-        self.script = script
+        self.script = hash(script)
 
-def power_load_template(self, config, option, default=None):
-    name = "%s:%s" % (config.get_name(), option)
-    if default is None:
-        script = config.get(option)
-    else:
-        script = config.get(option, default)
-    return TemplateWrapper(self.printer, self.env, name, script)
 
 def get_variabales(gcmd, config):
     variables = {}
@@ -72,9 +66,13 @@ class SectionUpdater:
 
     def update(self, gcmd):
         config = PrinterConfig(self.printer).read_main_config()
+        name_filter = gcmd.get('NAME', None)
 
         for section_config in config.get_prefix_sections(self.section):
             key = section_config.get_name()
+
+            if not name_filter is None and key.split()[1].lower() != name_filter:
+                continue
 
             current = self.printer.lookup_object(key, None)
             if current is None:
@@ -85,6 +83,10 @@ class SectionUpdater:
         for key, current in self.printer.lookup_objects(self.section):
             if key == self.section:
                 continue
+
+            if not name_filter is None and key.split()[1].lower() != name_filter:
+                continue
+
             if not config.has_section(key):
                 self._remove(gcmd, key, current)
 
@@ -107,27 +109,47 @@ class GCodeMacroUpdater(SectionUpdater):
         self.gcode_macro = self.printer.lookup_object('gcode_macro')
 
     def _compare(self, gcmd, current, section_config):
-        new_vars = get_variabales(gcmd, section_config)
-        new_desc = section_config.get("description", "G-Code macro")
-        return current.template.script == section_config.get('gcode') and current.cmd_desc == new_desc and current.variables == new_vars
+        vars_mode = gcmd.get_int('VARIABLES', 1)
+        if vars_mode > 0:
+            new_vars = get_variabales(gcmd, section_config)
+
+            if vars_mode == 1:
+                new_vars.update(current.variables)
+
+            if current.variables != new_vars:
+                return False
+                
+        return current.template.script == hash(section_config.get('gcode')) and current.cmd_desc == section_config.get("description", "G-Code macro")
 
 
     def _add(self, gcmd, key, config, section_config):
         try:
             self.gcode_macro.env.parse(section_config.get('gcode'))
             
-            self.printer.load_object(config, key)
+            obj = self.printer.load_object(config, key)
+            if not obj.rename_existing is None:
+                obj.handle_connect()
+
             gcmd.respond_info("Added {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
             gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
 
     def _update(self, gcmd, key, config, current, section_config):
+        vars_mode = gcmd.get_int('VARIABLES', 1)
         try:
             self.gcode_macro.env.parse(section_config.get('gcode'))
             
             current.template = self.gcode_macro.load_template(section_config, 'gcode')
             current.cmd_desc = section_config.get("description", "G-Code macro")
-            current.variables = get_variabales(gcmd, section_config)
+
+            new_vars = get_variabales(gcmd, section_config)
+            if vars_mode > 0:
+
+                if vars_mode == 1:
+                    new_vars.update(current.variables)
+
+                current.variables = new_vars
+
             gcmd.respond_info("Updated {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
             gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
@@ -149,6 +171,11 @@ class GCodeMacroUpdater(SectionUpdater):
         if cmd in self.gcode.gcode_help:
             del self.gcode.gcode_help[cmd]
 
+        if not current.rename_existing is None:
+            orig = self.gcode.register_command(current.rename_existing, None)
+            self.gcode.register_command(current.alias, orig)
+
+        # remove from printer configuration
         if key in self.printer.objects:
             del self.printer.objects[key]
 
@@ -216,14 +243,27 @@ class MacroPowerPack:
         self.gcode = self.printer.lookup_object('gcode')
 
         gm = self.printer.load_object(config, 'gcode_macro')
-        gm.load_template = types.MethodType(power_load_template, gm)
-        gm.env.add_extension('jinja2.ext.do')
-        gm.env.add_extension('jinja2.ext.loopcontrols')
+        gm.load_template = types.MethodType(self.load_template, gm)
+        gm.create_template_context = types.MethodType(self.create_template_context, gm)
         gm.env.loader = MacroTemplateLoader(self.printer)
-        gm.env.filters['bool'] = filter_bool
-        gm.env.filters['yesno'] = filter_yesno
-        gm.env.filters['onoff'] = filter_onoff
-        gm.env.filters['fromjson'] = filter_fromjson
+
+        if config.getboolean('enable_jinja_do', default=False):
+            gm.env.add_extension('jinja2.ext.do')
+        if config.getboolean('enable_jinja_loopcontrols', default=False):
+            gm.env.add_extension('jinja2.ext.loopcontrols')
+        if config.getboolean('enable_jinja_filter_bool', default=False):
+            gm.env.filters['bool'] = filter_bool
+        if config.getboolean('enable_jinja_filter_yesno', default=False):
+            gm.env.filters['yesno'] = filter_yesno
+        if config.getboolean('enable_jinja_filter_onoff', default=False):
+            gm.env.filters['onoff'] = filter_onoff
+        if config.getboolean('enable_jinja_filter_fromjson', default=False):
+            gm.env.filters['fromjson'] = filter_fromjson
+
+        self.config = {
+            'power_printer': config.getboolean('enable_power_printer', default=False),
+            'jinja_print': config.getboolean('enable_jinja_print', default=False)
+        }
 
         self.updater_gcode_macro = GCodeMacroUpdater(self.printer)
         self.updater_macro_template = MacroTemplateUpdater(self.printer)
@@ -239,6 +279,27 @@ class MacroPowerPack:
         self.updater_macro_template.update(gcmd)
 
         gcmd.respond_info("Reload complete")
+
+    def load_template(self, gSelf, config, option, default=None):
+        name = "%s:%s" % (config.get_name(), option)
+        if default is None:
+            script = config.get(option)
+        else:
+            script = config.get(option, default)
+        return TemplateWrapper(gSelf.printer, gSelf.env, name, script)
+
+    def create_template_context(self, gSelf, eventtime=None):
+        ctx = gcode_macro.PrinterGCodeMacro.create_template_context(gSelf, eventtime)
+
+        if self.config['jinja_print']:
+            ctx['print'] = ctx['action_respond_info']
+
+        ctx['pp'] = {'vars': {}}
+        if self.config['power_printer']:
+            ctx['pp']['printer'] = self.printer
+
+        return ctx
+        
 
 def load_config(config):
     return MacroPowerPack(config)

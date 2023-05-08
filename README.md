@@ -33,12 +33,21 @@ is_system_service: False
 Finally to enable the extension, add floowing block (preferably) on the top of your config
 ```
 [macro_power_pack]
+enable_jinja_do: True
+enable_jinja_loopcontrols: True
+enable_jinja_filter_bool: True
+enable_jinja_filter_yesno: True
+enable_jinja_filter_onoff: True
+enable_jinja_filter_fromjson: True
+enable_jinja_print: True
+enable_power_printer: True
 ```
 
 ## Features
 
 ### Macro reload
-G-Code command `MACRO_RELOAD` reads configuration files again and reloads macros
+G-Code command `MACRO_RELOAD [VARIABLES=1] [NAME=<template/macro name>]` reads configuration files again and reloads macros. 
+By default it also adds new variables, to disable this behavior add `VARIABLES=0` parameter, or to replace variable sets with those from file use `VARIABLES=2`. You can also restrict reload by macro/template name using `NAME=...` parameter.
 
 ### Templates
 To define macros for use in [`include`s](https://jinja.palletsprojects.com/en/2.10.x/templates/#include) or [`import`s](https://jinja.palletsprojects.com/en/2.10.x/templates/#import) define `macro_template` section
@@ -81,3 +90,6 @@ gcode:
 
 ### `break` and `continue` statements
 Enables `jinja2.ext.loopcontrols`  jinja extension that adds support for break and continue in loops
+
+### `pp.printer`
+Global variable `pp.printer` proivdes full access to the main [printer](https://github.com/Klipper3d/klipper/blob/master/klippy/klippy.py) object
