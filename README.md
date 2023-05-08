@@ -1,8 +1,12 @@
 # klipper-macro-power-pack
 
-Reload all your macros without restarting Klipper! 
+Reload all your macros without restarting Klipper! And get more from macro templates.
 
-And get more from jinja templates?
+By default this extension runs in "purist" mode - enables only macro reload, but following additional features for macro templates can be enabled in configuration:
+- do and loopcontrols jinja extensions
+- boolean filters
+- direct access to printer object
+- global variables
 
 ## Installation
 
@@ -59,11 +63,6 @@ template:
       Hello { name }!
     {%- endmacro %}
 
-```
-
-usage:
-
-```
 [gcode_macro TEST_HELLO]
 gcode:
   {% import 'my_test_template' as t %}
@@ -91,5 +90,28 @@ gcode:
 ### `break` and `continue` statements
 Enables `jinja2.ext.loopcontrols`  jinja extension that adds support for break and continue in loops
 
-### `pp.printer`
+### Power printer
 Global variable `pp.printer` proivdes full access to the main [printer](https://github.com/Klipper3d/klipper/blob/master/klippy/klippy.py) object
+
+### Global variables
+`[macro_power_pack]` sections allows for `variable_`s like `gcode_macro` does, those variables are globally accessible via `pp.vars.` dictionary and lazily evaluated by jinja.
+
+```
+[gcode_macro _vars]
+gcode:
+variable_end_delay: 300
+
+[macro_power_pack]
+# ...
+variable_my_variables: {
+    'end_delay': ['printer["gcode_macro _vars"].end_delay|default(120)|int'],
+    'string': '"str"'
+  }
+
+[gcode_macro TEST_VARS]
+gcode:
+  {% do print("{!r}".format(pp.vars)) %}
+
+# TEST_VARS outputs:
+# {'my_variables': {'end_delay': [300], 'string': 'str'}}
+```

@@ -27,7 +27,7 @@ class TemplateWrapper(gcode_macro.TemplateWrapper):
         self.script = hash(script)
 
 
-def get_variabales(gcmd, config):
+def get_variabales(print, config):
     variables = {}
     prefix = 'variable_'
 
@@ -37,9 +37,7 @@ def get_variabales(gcmd, config):
             json.dumps(literal, separators=(',', ':'))
             variables[option[len(prefix):]] = literal
         except (SyntaxError, TypeError, ValueError) as e:
-            gcmd.respond_info(
-                "Option '%s' in section '%s' is not a valid literal: %s" % (
-                    option, config.get_name(), e))
+            print("Option '%s' in section '%s' is not a valid literal: %s" % (option, config.get_name(), e))
 
     return variables
 
@@ -64,8 +62,7 @@ class SectionUpdater:
         self.section = section
         self.printer = printer
 
-    def update(self, gcmd):
-        config = PrinterConfig(self.printer).read_main_config()
+    def update(self, gcmd, config):
         name_filter = gcmd.get('NAME', None)
 
         for section_config in config.get_prefix_sections(self.section):
@@ -111,7 +108,7 @@ class GCodeMacroUpdater(SectionUpdater):
     def _compare(self, gcmd, current, section_config):
         vars_mode = gcmd.get_int('VARIABLES', 1)
         if vars_mode > 0:
-            new_vars = get_variabales(gcmd, section_config)
+            new_vars = get_variabales(gcmd.respond_info, section_config)
 
             if vars_mode == 1:
                 new_vars.update(current.variables)
@@ -142,7 +139,7 @@ class GCodeMacroUpdater(SectionUpdater):
             current.template = self.gcode_macro.load_template(section_config, 'gcode')
             current.cmd_desc = section_config.get("description", "G-Code macro")
 
-            new_vars = get_variabales(gcmd, section_config)
+            new_vars = get_variabales(gcmd.respond_info, section_config)
             if vars_mode > 0:
 
                 if vars_mode == 1:
@@ -242,28 +239,30 @@ class MacroPowerPack:
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
 
-        gm = self.printer.load_object(config, 'gcode_macro')
-        gm.load_template = types.MethodType(self.load_template, gm)
-        gm.create_template_context = types.MethodType(self.create_template_context, gm)
-        gm.env.loader = MacroTemplateLoader(self.printer)
+        self.gcode_macro = self.printer.load_object(config, 'gcode_macro')
+        self.gcode_macro.load_template = types.MethodType(self.load_template, self.gcode_macro)
+        self.gcode_macro.create_template_context = types.MethodType(self.create_template_context, self.gcode_macro)
+        self.gcode_macro.env.loader = MacroTemplateLoader(self.printer)
 
         if config.getboolean('enable_jinja_do', default=False):
-            gm.env.add_extension('jinja2.ext.do')
+            self.gcode_macro.env.add_extension('jinja2.ext.do')
         if config.getboolean('enable_jinja_loopcontrols', default=False):
-            gm.env.add_extension('jinja2.ext.loopcontrols')
+            self.gcode_macro.env.add_extension('jinja2.ext.loopcontrols')
         if config.getboolean('enable_jinja_filter_bool', default=False):
-            gm.env.filters['bool'] = filter_bool
+            self.gcode_macro.env.filters['bool'] = filter_bool
         if config.getboolean('enable_jinja_filter_yesno', default=False):
-            gm.env.filters['yesno'] = filter_yesno
+            self.gcode_macro.env.filters['yesno'] = filter_yesno
         if config.getboolean('enable_jinja_filter_onoff', default=False):
-            gm.env.filters['onoff'] = filter_onoff
+            self.gcode_macro.env.filters['onoff'] = filter_onoff
         if config.getboolean('enable_jinja_filter_fromjson', default=False):
-            gm.env.filters['fromjson'] = filter_fromjson
+            self.gcode_macro.env.filters['fromjson'] = filter_fromjson
 
         self.config = {
             'power_printer': config.getboolean('enable_power_printer', default=False),
             'jinja_print': config.getboolean('enable_jinja_print', default=False)
         }
+
+        self._load_vars(config)
 
         self.updater_gcode_macro = GCodeMacroUpdater(self.printer)
         self.updater_macro_template = MacroTemplateUpdater(self.printer)
@@ -274,9 +273,19 @@ class MacroPowerPack:
             desc="Reloads macros from config files"
         )
 
+    def _unwrap_variable(self, value): 
+        return self.gcode_macro.env.compile_expression(value)(gcode_macro.PrinterGCodeMacro.create_template_context(self.gcode_macro))
+
+    def _load_vars(self, config): 
+        self.variables = ProxyDict(get_variabales(self.gcode.respond_info, config), unwrap=self._unwrap_variable)
+
     def cmd_MACRO_RELOAD(self, gcmd):
-        self.updater_gcode_macro.update(gcmd)
-        self.updater_macro_template.update(gcmd)
+        config = PrinterConfig(self.printer).read_main_config()
+
+        self._load_vars(config.getsection('macro_power_pack'))
+            
+        self.updater_gcode_macro.update(gcmd, config)
+        self.updater_macro_template.update(gcmd, config)
 
         gcmd.respond_info("Reload complete")
 
@@ -294,12 +303,95 @@ class MacroPowerPack:
         if self.config['jinja_print']:
             ctx['print'] = ctx['action_respond_info']
 
-        ctx['pp'] = {'vars': {}}
+        ctx['pp'] = {'vars': self.variables}
         if self.config['power_printer']:
             ctx['pp']['printer'] = self.printer
 
         return ctx
         
+
+class ProxyDict(dict):
+    def __init__(self, *args, **kwargs):
+        self._parent = kwargs.pop('parent', self)
+        self._unwrap = kwargs.pop('unwrap', None)
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        if isinstance(value, dict):
+            return ProxyDict(value, parent=self._parent)
+        elif isinstance(value, list):
+            return ProxyList(value, parent=self._parent)
+        elif isinstance(value, tuple):
+            return ProxyTuple(value, parent=self._parent)
+        elif isinstance(value, str):
+            return self._parent._unwrap(value)
+        return value
+
+    def __repr__(self):
+        d = {}
+        for key in self:
+            d[key] = self.__getitem__(key)
+
+        return str(d)
+
+    def __str__(self):
+        return self.__repr__()
+
+class ProxyTuple(tuple):
+    def __init__(self, *args, **kwargs):
+        self._parent = kwargs.pop('parent', self)
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        if isinstance(value, dict):
+            return ProxyDict(value, parent=self._parent)
+        elif isinstance(value, list):
+            return ProxyList(value, parent=self._parent)
+        elif isinstance(value, tuple):
+            return ProxyTuple(value, parent=self._parent)
+        elif isinstance(value, str):
+            return self._parent._unwrap(value)
+        return value
+
+    def __repr__(self):
+        t = ()
+        for key in range(len(self)):
+            t = t + (self.__getitem__(key),)
+
+        return str(t)
+
+    def __str__(self):
+        return self.__repr__()
+
+class ProxyList(list):
+    def __init__(self, *args, **kwargs):
+        self._parent = kwargs.pop('parent', self)
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        if isinstance(value, dict):
+            return ProxyDict(value, parent=self._parent)
+        elif isinstance(value, list):
+            return ProxyList(value, parent=self._parent)
+        elif isinstance(value, tuple):
+            return ProxyTuple(value, parent=self._parent)
+        elif isinstance(value, str):
+            return self._parent._unwrap(value)
+        return value
+
+    def __repr__(self):
+        l = []
+        for key in range(len(self)):
+            l.append(self.__getitem__(key))
+
+        return str(l)
+
+    def __str__(self):
+        return self.__repr__()
+
 
 def load_config(config):
     return MacroPowerPack(config)
