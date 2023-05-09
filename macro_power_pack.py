@@ -116,7 +116,7 @@ class GCodeMacroUpdater(SectionUpdater):
             if current.variables != new_vars:
                 return False
                 
-        return current.template.script == hash(section_config.get('gcode')) and current.cmd_desc == section_config.get("description", "G-Code macro")
+        return current.template.script == hash(section_config.get('gcode')) and current.cmd_desc == section_config.get("description", "G-Code macro") and current.rename_existing == section_config.get("rename_existing", None)
 
 
     def _add(self, gcmd, key, config, section_config):
@@ -146,6 +146,21 @@ class GCodeMacroUpdater(SectionUpdater):
                     new_vars.update(current.variables)
 
                 current.variables = new_vars
+
+            rename_existing = section_config.get("rename_existing", None)
+            if current.rename_existing is None and not rename_existing is None:
+                current.handle_connect() # this shouldn't happen
+            elif not current.rename_existing is None and rename_existing is None:
+                gcmd.respond_info("Warning: rename_existing {} removed from config, not updating!".format(key)) # this shouldn't happen
+            elif current.rename_existing != rename_existing:
+                orig = self.gcode.register_command(current.rename_existing, None)
+                self.gcode.register_command(rename_existing, orig)
+
+                if current.rename_existing in self.gcode.gcode_help:
+                    self.gcode.gcode_help[rename_existing] = self.gcode.gcode_help[current.rename_existing]
+                    del self.gcode.gcode_help[current.rename_existing]
+
+            current.rename_existing = rename_existing
 
             gcmd.respond_info("Updated {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
