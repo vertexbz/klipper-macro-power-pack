@@ -1,0 +1,7 @@
+name: klipper-macro-power-pack
+author: vertexbz@gmail.com
+license: WTF
+provides:
+  klipper-extension:
+    - macro_power_pack.py
+    - macro_template.py
