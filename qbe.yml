@@ -3,8 +3,10 @@ author: vertexbz@gmail.com
 license: WTF
 provides:
   klipper-config:
+    link:
+      - [ loader.cfg, 0000-macro-power-pack.loader.cfg ]
     blueprint:
-      - [ loader.cfg, macro-power-pack.cfg ]
+      - [ config.cfg, macro-power-pack.cfg ]
   klipper-extension:
     - macro_power_pack.py
     - macro_template.py
