@@ -6,8 +6,10 @@
 import types, configfile, ast, json, jinja2, hashlib
 from . import gcode_macro
 
+
 def hash(value):
     return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
 
 class MacroTemplateLoader(jinja2.BaseLoader):
     def __init__(self, printer):
@@ -41,7 +43,8 @@ def get_variabales(print, config):
 
     return variables
 
-class PrinterConfig(configfile.PrinterConfig): 
+
+class PrinterConfig(configfile.PrinterConfig):
     def __init__(self, printer):
         self.printer = printer
         self.deprecated = {}
@@ -52,10 +55,13 @@ class PrinterConfig(configfile.PrinterConfig):
 
     def log_config(self, config):
         pass
+
     def check_unused_options(self, config):
         pass
+
     def cmd_SAVE_CONFIG(self, gcmd):
         pass
+
 
 class SectionUpdater:
     def __init__(self, printer, section):
@@ -68,7 +74,7 @@ class SectionUpdater:
         for section_config in config.get_prefix_sections(self.section):
             key = section_config.get_name()
 
-            if not name_filter is None and key.split()[1].lower() != name_filter:
+            if not name_filter is None and key.split()[1].lower() != name_filter.lower():
                 continue
 
             current = self.printer.lookup_object(key, None)
@@ -81,7 +87,7 @@ class SectionUpdater:
             if key == self.section:
                 continue
 
-            if not name_filter is None and key.split()[1].lower() != name_filter:
+            if not name_filter is None and key.split()[1].lower() != name_filter.lower():
                 continue
 
             if not config.has_section(key):
@@ -99,7 +105,8 @@ class SectionUpdater:
     def _remove(self, gcmd, key, current):
         pass
 
-class GCodeMacroUpdater(SectionUpdater): 
+
+class GCodeMacroUpdater(SectionUpdater):
     def __init__(self, printer):
         SectionUpdater.__init__(self, printer, 'gcode_macro')
         self.gcode = self.printer.lookup_object('gcode')
@@ -115,14 +122,14 @@ class GCodeMacroUpdater(SectionUpdater):
 
             if current.variables != new_vars:
                 return False
-                
-        return current.template.script == hash(section_config.get('gcode')) and current.cmd_desc == section_config.get("description", "G-Code macro") and current.rename_existing == section_config.get("rename_existing", None)
 
+        return current.template.script == hash(section_config.get('gcode')) and current.cmd_desc == section_config.get(
+            "description", "G-Code macro") and current.rename_existing == section_config.get("rename_existing", None)
 
     def _add(self, gcmd, key, config, section_config):
         try:
             self.gcode_macro.env.parse(section_config.get('gcode'))
-            
+
             obj = self.printer.load_object(config, key)
             if not obj.rename_existing is None:
                 obj.handle_connect()
@@ -135,7 +142,7 @@ class GCodeMacroUpdater(SectionUpdater):
         vars_mode = gcmd.get_int('VARIABLES', 1)
         try:
             self.gcode_macro.env.parse(section_config.get('gcode'))
-            
+
             current.template = self.gcode_macro.load_template(section_config, 'gcode')
             current.cmd_desc = section_config.get("description", "G-Code macro")
 
@@ -149,9 +156,10 @@ class GCodeMacroUpdater(SectionUpdater):
 
             rename_existing = section_config.get("rename_existing", None)
             if current.rename_existing is None and not rename_existing is None:
-                current.handle_connect() # this shouldn't happen
+                current.handle_connect()  # this shouldn't happen
             elif not current.rename_existing is None and rename_existing is None:
-                gcmd.respond_info("Warning: rename_existing {} removed from config, not updating!".format(key)) # this shouldn't happen
+                gcmd.respond_info("Warning: rename_existing {} removed from config, not updating!".format(
+                    key))  # this shouldn't happen
             elif current.rename_existing != rename_existing:
                 orig = self.gcode.register_command(current.rename_existing, None)
                 self.gcode.register_command(rename_existing, orig)
@@ -165,7 +173,6 @@ class GCodeMacroUpdater(SectionUpdater):
             gcmd.respond_info("Updated {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
             gcmd.respond_info('Skipped {} - template error: {}'.format(key, e))
-
 
     def _remove(self, gcmd, key, current):
         name = key.split()[1]
@@ -193,7 +200,8 @@ class GCodeMacroUpdater(SectionUpdater):
 
         gcmd.respond_info("Removed {}".format(key))
 
-class MacroTemplateUpdater(SectionUpdater): 
+
+class MacroTemplateUpdater(SectionUpdater):
     def __init__(self, printer):
         SectionUpdater.__init__(self, printer, 'macro_template')
         self.gcode = self.printer.lookup_object('gcode')
@@ -205,7 +213,7 @@ class MacroTemplateUpdater(SectionUpdater):
     def _add(self, gcmd, key, config, section_config):
         try:
             self.gcode_macro.env.parse(section_config.get('template'))
-            
+
             self.printer.load_object(config, key)
             gcmd.respond_info("Added {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
@@ -214,7 +222,7 @@ class MacroTemplateUpdater(SectionUpdater):
     def _update(self, gcmd, key, config, current, section_config):
         try:
             self.gcode_macro.env.parse(section_config.get('template'))
-            
+
             current.template = section_config.get('template')
             gcmd.respond_info("Updated {}".format(key))
         except jinja2.exceptions.TemplateSyntaxError as e:
@@ -225,6 +233,7 @@ class MacroTemplateUpdater(SectionUpdater):
             del self.printer.objects[key]
 
         gcmd.respond_info("Removed {}".format(key))
+
 
 def filter_bool(value):
     if isinstance(value, bool):
@@ -240,14 +249,18 @@ def filter_bool(value):
     except ValueError:
         return False
 
+
 def filter_yesno(value):
     return "yes" if filter_bool(value) else "no"
+
 
 def filter_onoff(value):
     return "on" if filter_bool(value) else "off"
 
+
 def filter_fromjson(value):
     return json.loads(value)
+
 
 class MacroPowerPack:
     def __init__(self, config):
@@ -283,22 +296,23 @@ class MacroPowerPack:
         self.updater_macro_template = MacroTemplateUpdater(self.printer)
 
         self.gcode.register_command(
-            'MACRO_RELOAD', 
+            'MACRO_RELOAD',
             self.cmd_MACRO_RELOAD,
             desc="Reloads macros from config files"
         )
 
-    def _unwrap_variable(self, value): 
-        return self.gcode_macro.env.compile_expression(value)(gcode_macro.PrinterGCodeMacro.create_template_context(self.gcode_macro))
+    def _unwrap_variable(self, value):
+        return self.gcode_macro.env.compile_expression(value)(
+            gcode_macro.PrinterGCodeMacro.create_template_context(self.gcode_macro))
 
-    def _load_vars(self, config): 
+    def _load_vars(self, config):
         self.variables = ProxyDict(get_variabales(self.gcode.respond_info, config), unwrap=self._unwrap_variable)
 
     def cmd_MACRO_RELOAD(self, gcmd):
         config = PrinterConfig(self.printer).read_main_config()
 
         self._load_vars(config.getsection('macro_power_pack'))
-            
+
         self.updater_gcode_macro.update(gcmd, config)
         self.updater_macro_template.update(gcmd, config)
 
@@ -323,7 +337,7 @@ class MacroPowerPack:
             ctx['pp']['printer'] = self.printer
 
         return ctx
-        
+
 
 class ProxyDict(dict):
     def __init__(self, *args, **kwargs):
@@ -353,6 +367,7 @@ class ProxyDict(dict):
     def __str__(self):
         return self.__repr__()
 
+
 class ProxyTuple(tuple):
     def __init__(self, *args, **kwargs):
         self._parent = kwargs.pop('parent', self)
@@ -379,6 +394,7 @@ class ProxyTuple(tuple):
 
     def __str__(self):
         return self.__repr__()
+
 
 class ProxyList(list):
     def __init__(self, *args, **kwargs):
